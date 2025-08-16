@@ -203,7 +203,6 @@ func convertOne(inputPath string, opts convertOptions) error {
 	if err != nil {
 		return err
 	}
-	defer in.Close()
 
 	img, _, err := image.Decode(in)
 	if err != nil {
@@ -244,9 +243,14 @@ func convertOne(inputPath string, opts convertOptions) error {
 		return err
 	}
 
+	in.Close()
+
 	if opts.deleteOriginal {
-		_ = os.Remove(inputPath)
+		if err := os.Remove(inputPath); err != nil {
+			return fmt.Errorf("failed to delete original file %s: %w", inputPath, err)
+		}
 	}
+
 	return nil
 }
 
