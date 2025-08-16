@@ -2,7 +2,6 @@ package main
 
 import (
 	"errors"
-	"flag"
 	"fmt"
 	"image"
 	_ "image/gif"
@@ -18,6 +17,7 @@ import (
 	_ "golang.org/x/image/tiff"
 
 	webp "github.com/chai2010/webp"
+	"github.com/spf13/cobra"
 )
 
 type convertOptions struct {
@@ -27,44 +27,65 @@ type convertOptions struct {
 	deleteOriginal bool
 	recursive      bool
 	workers        int
+	directory      string
 }
 
 var (
-	flagQuality    = flag.Int("quality", 80, "WebP quality (0-100)")
-	flagLossless   = flag.Bool("lossless", false, "Use lossless WebP encoding")
-	flagOverwrite  = flag.Bool("overwrite", false, "Overwrite existing .webp files if present")
-	flagDeleteOrig = flag.Bool("delete-original", false, "Delete the original image after successful conversion")
-	flagRecursive  = flag.Bool("recursive", false, "Recurse into subdirectories")
-	flagWorkers    = flag.Int("workers", runtime.NumCPU(), "Number of concurrent workers")
+	opts = convertOptions{
+		quality:   80,
+		lossless:  false,
+		overwrite: false,
+		recursive: false,
+		workers:   runtime.NumCPU(),
+		directory: ".",
+	}
 )
 
-func main() {
-	flag.Parse()
+var rootCmd = &cobra.Command{
+	Use:   "image-convert",
+	Short: "Convert images to WebP format",
+	Long: `A fast and efficient tool to convert various image formats to WebP.
+Supports JPEG, PNG, GIF, BMP, TIFF formats and converts them to WebP with configurable quality and options.`,
+	RunE: runConvert,
+}
 
-	opts := convertOptions{
-		quality:        float32(*flagQuality),
-		lossless:       *flagLossless,
-		overwrite:      *flagOverwrite,
-		deleteOriginal: *flagDeleteOrig,
-		recursive:      *flagRecursive,
-		workers:        *flagWorkers,
-	}
+func init() {
+	// Quality flag
+	rootCmd.Flags().Float32VarP(&opts.quality, "quality", "q", 80, "WebP quality (0-100)")
 
+	// Boolean flags
+	rootCmd.Flags().BoolVarP(&opts.lossless, "lossless", "l", false, "Use lossless WebP encoding")
+	rootCmd.Flags().BoolVarP(&opts.overwrite, "overwrite", "o", false, "Overwrite existing .webp files if present")
+	rootCmd.Flags().BoolVarP(&opts.deleteOriginal, "delete-original", "d", false, "Delete the original image after successful conversion")
+	rootCmd.Flags().BoolVarP(&opts.recursive, "recursive", "r", false, "Recurse into subdirectories")
+
+	// Other flags
+	rootCmd.Flags().IntVarP(&opts.workers, "workers", "w", runtime.NumCPU(), "Number of concurrent workers")
+	rootCmd.Flags().StringVarP(&opts.directory, "directory", "D", ".", "Directory to process (default: current directory)")
+
+	// Mark directory flag as required
+	rootCmd.MarkFlagRequired("directory")
+}
+
+func runConvert(cmd *cobra.Command, args []string) error {
+	// Validate quality range
 	if opts.quality < 0 || opts.quality > 100 {
-		fmt.Fprintf(os.Stderr, "invalid quality %v: must be between 0 and 100\n", opts.quality)
-		os.Exit(2)
+		return fmt.Errorf("quality must be between 0 and 100")
 	}
 
-	startDir := "."
-	files, err := collectImageFiles(startDir, opts.recursive)
+	// Validate workers
+	if opts.workers < 1 {
+		return fmt.Errorf("workers must be at least 1")
+	}
+
+	files, err := collectImageFiles(opts.directory, opts.recursive)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "error collecting files: %v\n", err)
-		os.Exit(1)
+		return fmt.Errorf("error collecting files: %w", err)
 	}
 
 	if len(files) == 0 {
 		fmt.Println("No images found to convert.")
-		return
+		return nil
 	}
 
 	total := len(files)
@@ -109,14 +130,15 @@ func main() {
 	for r := range results {
 		if r.err != nil {
 			failed++
-			fmt.Fprintf(os.Stderr, "[FAIL] %s: %v\n", r.path, r.err)
+			fmt.Fprintf(os.Stderr, "[FAIL]	%s: %v\n", r.path, r.err)
 		} else {
 			converted++
-			fmt.Printf("[OK]   %s\n", r.path)
+			fmt.Printf("[OK]	%s\n", r.path)
 		}
 	}
 
 	fmt.Printf("Done. Converted: %d, Failed: %d\n", converted, failed)
+	return nil
 }
 
 func collectImageFiles(root string, recursive bool) ([]string, error) {
@@ -237,4 +259,11 @@ func makeOutPath(input string) string {
 
 func isHidden(name string) bool {
 	return strings.HasPrefix(name, ".")
+}
+
+func main() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+		os.Exit(1)
+	}
 }
