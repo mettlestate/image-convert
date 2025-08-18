@@ -16,3 +16,7 @@ build-mac:
 #clean the binary
 clean:
 	rm -f image-convert
+
+#copy binary to the bin directory
+copy:
+	cp ./image-convert /usr/local/bin/
